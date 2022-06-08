@@ -1,0 +1,25 @@
+{% extends "base.html"%}
+
+{% block head_stuff %}
+<title>Socialfy</title>
+{% endblock %}
+
+{% block main_content %}
+
+<!-- for the people following you.  -->
+
+    <h1>Followers</h1>
+
+
+        <div class = "findFriends">
+            <form method = 'POST' action = "{{url_for('followerList')}}"  aria-label="follower list">
+                    {% for friend in followers %}
+                        {% if friend['uid'] != uid %}
+                            <h2 value="{{friend['username']}}"> <a href = "{{url_for('view_friendProfile',username=friend['username'])}}">{{friend['username']}}</a></h2>
+                        {%endif%}
+                    {% endfor %}
+                <br>
+            </form>
+        </div>
+
+{% endblock %}

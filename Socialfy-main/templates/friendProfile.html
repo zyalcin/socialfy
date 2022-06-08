@@ -1,0 +1,86 @@
+{% extends "base.html"%}
+
+{% block head_stuff %}
+<title>{{username}}'s Profile</title>
+{% endblock %}
+
+{% block main_content %}
+
+<div class="profile-page">
+<div username={{username}} >
+    
+    {% if session['logged_in'] %}
+    <a class="active" href="{{ url_for('view_profile') }}"></a>
+    {% endif %}
+
+    <h1>{{username}}</h1>
+    <h2> {{following_count}} Following </a></h2>
+    <h2> {{followers_count}} Followers </a> </h2>
+
+    <form method = 'POST' action = "{{url_for('view_friendProfile', username=friend_username)}}"  aria-label="friendProfile">
+        {% if username in followingUsernames %}
+            <!-- if I am following them... -->
+            <input class = "unfollowButton" type="submit" name = "submit" value="unfollow">
+        {% else %}
+            <input class = "followButton" type="submit" name = "submit" value="follow">
+        {% endif %}
+    </form>
+
+    <div class = "sharedSongs">
+            {% for post in userSongList %}
+
+
+            {%if post['toAllFriends'] == True%}
+                <div class = "feed-post">
+                <!-- if I am the receiver of the song -->
+                <h2> {{username}} shared a {{post.get('type', "track")}} with {{post['username']}}</h2>
+
+                <h3> {{post['date']}} </h3>
+                
+
+                <a href="{{post['url']}}" aria-label='Spotify URL' target="_blank"> {{post['name']}} </a> 
+                {% if post['embed_link'] is not none %}
+                    <iframe style="border-radius:12px; margin: auto; display: block;" src= "{{post["embed_link"]}}" width="50%" height="380" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
+                {% endif %}
+                
+                {% if post['content'] is not none %}
+                    <p> {{post['content']}} </p>
+                {% endif %}
+
+
+
+                <form method = 'POST' action = "{{url_for('view_friendProfile', username=friend_username)}}"  aria-label="delete comment">
+                    {% for comment in post['commentList']%}
+                    <div class = "commentDiv">
+                        <h3> {{comment['username']}} </h3>
+    
+                        {% if comment['uid'] == uid %}
+                            <p class = "comment"> {{comment['comment']}} </p>
+                            <input class = "deleteButton" type="submit"  name = {{"delete_"~comment['cid']}} value="delete">
+                            <!-- <button class = "deleteButton"> delete </button>  -->
+                            <br>
+    
+                        {% else %}
+                            <p class = "comment"> {{comment['comment']}}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+            </form>
+
+            <form method = 'POST' action = "{{url_for('view_friendProfile', username=friend_username)}}" aria-label="comment">
+                <textarea class = "musicShareTextArea" required name={{"add_comment_"~post['postId']}} rows="7" cols="50"  aria-label="comment"></textarea>
+                <br>
+                <br>
+                <button class = "commentButton"> Comment </button>
+            </form>
+
+            </div>
+            {% endif %}
+        <br>
+    {% endfor %} 
+    </div>
+
+</div>
+</div>
+
+{% endblock %}

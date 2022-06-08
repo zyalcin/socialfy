@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <!-- for mobile-friendly pages -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name=Socialfy content="">
+    <title>Login Page</title>
+    <div role=”Log-In” aria-label= "Log-In"></div>
+    <link rel='stylesheet' href="{{url_for('static', filename = 'style.css')}}">
+
+
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div id="messages">
+  {% for msg in messages %}
+  <p>{{msg}}</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+
+{% block main_content %}
+
+{% block form %}
+<div class = "login-page">
+  <h1 > Log In </h1>
+  <header role="Log-In"></header>
+  <div class = "login-form">
+    <form method = 'POST' action = "{{url_for('login')}}">
+      <input type="text" required name="username" placeholder = "username" aria-label="username">
+      <br>
+      <br>
+      <input type="password" required name="password" placeholder= "password" aria-label="password">
+      <br>
+      <br>
+      <button > Log in </button>
+    </form>
+  </div>
+  <p class = "loginP"> Don't have an account? </p>
+  <div class = "login-form button">
+  <a href="{{url_for('.signup')}}">
+    <button> Sign Up </button>
+  </a>
+</div>
+</div>
+{% endblock %}
+
+{% endblock %}

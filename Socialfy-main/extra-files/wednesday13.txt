@@ -1,0 +1,20 @@
+Todo for the draft version:
+- share music page (Kate)
+- profile page (Zeynep)
+- feed page (Kate or whoever has time)
+
+This will involve (on the backend):
+- iron out friends list (Julia)
+- debugging getting posts for the feed (Julia or Aine or anyone)
+
+Goal: Friday! but we have flex
+Today: 
+- iron out friendslist
+- share music
+- profile page
+
+Tomorrow: 
+- start feed page
+
+Friday: 
+- work on feed page

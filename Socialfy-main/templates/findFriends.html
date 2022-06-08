@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block head_stuff %}
+<title>Find Friends</title>
+{% endblock %}
+
+{% block main_content %}
+<h1> Find Users </h1>
+
+<div class = "musicShare-page" >
+    <p> search for username to follow </p>
+            <form method = 'POST' action = "{{url_for('findFriends')}}"  aria-label="find friends">
+            <input class = "musicShareURL" type="text" name="name" placeholder = " &#128269; username"  aria-label="find: username">
+            <br>
+            <input class = "musicShareButton" type="submit" name = "submit" value="Search">
+            <br>
+            <h2> {{user}} </h2>
+            {% for user in userList %}
+            {% if user['username'] != username %}
+                <p value="{{user['username']}}"> <a href = "{{url_for('view_friendProfile',username=user['username'])}}"> {{user['username']}} </a> </p> 
+            {% endif %}
+
+            {% endfor %}
+
+        </form>
+</div>
+<br>
+
+{% endblock %}

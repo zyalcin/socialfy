@@ -1,0 +1,1563 @@
+from flask import (Flask, render_template, make_response, url_for, request,
+                   redirect, flash, session, send_from_directory, jsonify)
+from werkzeug.utils import secure_filename
+app = Flask(__name__)
+
+# one or the other of these. Defaults to MySQL (PyMySQL)
+# change comment characters to switch to SQLite
+
+import cs304dbi as dbi
+# import cs304dbi_sqlite3 as dbi
+
+import random
+import db_functions
+import api_functions
+import bcrypt 
+import re
+
+app.secret_key = 'your secret here'
+# replace that with a random key
+app.secret_key = ''.join([ random.choice(('ABCDEFGHIJKLMNOPQRSTUVXYZ' +
+                                          'abcdefghijklmnopqrstuvxyz' +
+                                          '0123456789'))
+                           for i in range(20) ])
+
+# This gets us better error messages for certain common request errors
+app.config['TRAP_BAD_REQUEST_ERRORS'] = True
+
+
+@app.route('/')
+def index():
+    return redirect(url_for('display_feed'))
+
+
+@app.route('/share/', methods=["GET", "POST"])
+def music_share_form():
+    if request.method == "GET":
+        # check if logged in
+        print("Are we logged in? {}".format(session.get('logged_in')))
+        if session.get('logged_in', False):
+            username = session.get('username')
+            print("Your username is {}".format(username))
+            conn = dbi.connect()
+            uid = db_functions.get_uid(conn, username)
+            friends = db_functions.get_followers(conn,uid['uid'])
+
+            return render_template('musicShareForm.html', title='Customized Greeting', friendList = friends)
+        else:
+            return redirect(url_for('login'))
+
+    else:
+        print("posting!")
+        try:
+            conn = dbi.connect()
+            
+            # make dictionary with post info
+            post_info = {}
+            post_info['senderId'] = db_functions.get_uid(conn, session.get('username'))['uid']
+            post_info['receiverId'] = request.form['friendList']
+            post_info['url'] = request.form['URL']
+            post_info['content'] = request.form['message']
+
+            if post_info['receiverId'] == "ALL":
+                post_info['toAllFriends'] = True
+                post_info['receiverId'] = None
+            
+            # determine type of content from the URL
+            match_attempt = re.search('open.spotify.com/(.*)/', post_info['url'])
+            if match_attempt:
+                post_info['type'] = match_attempt.group(1)
+
+            print(post_info)
+
+            # actually create the post
+            post_id = db_functions.create_post(conn, post_info)
+
+            flash('form submission successful')
+
+            ## then take user to their feed
+            return redirect(url_for('display_feed'))
+
+        except Exception as err:
+            flash('form submission error'+str(err))
+            return redirect( url_for('display_feed') )
+
+
+## we want this to be /profile/<string:username> eventually
+#@app.route('/profile/<int:uid>',methods=['GET'])
+#def view_profile(uid):
+    #if request.method == 'GET':
+        #conn = dbi.connect()
+        #username= session.get('username','')
+        #return render_template('profile.html', username=username)
+
+@app.route('/profile/<int:uid>', methods=["GET"])
+def view_friendProfile(uid):
+    conn = dbi.connect()
+    
+    username = db_functions.get_username(conn, uid)['username']
+
+    followers = db_functions.get_followers(conn, uid)
+    followers_count = len(followers)
+
+    following = db_functions.get_follows(conn,uid)
+    following_count = len(following)
+
+    userSongList = db_functions.getUserSongs(conn, uid)
+    for song in userSongList:
+        if song['toAllFriends'] == 0:
+            name = db_functions.get_username(conn,song['receiverId'])['username']
+            song['username'] = name
+        else:
+            song['username'] = "All Friends"
+
+        #gets all of the songs that have been shared by this user
+        userSongList = db_functions.getUserSongs(conn, uid)
+        #print(userSongList)
+        for song in userSongList:
+            if song['toAllFriends'] == 0:
+                name = db_functions.get_username(conn,song['receiverId'])['username']
+                song['username'] = name
+            else:
+                song['username'] = "All Friends"
+        #print(userSongList)
+        username = db_functions.get_username(conn, uid)['username']
+        #print("Your username is {}".format(username))
+
+        ## get pics for each of the songs
+        for p in userSongList:
+        # determine type if not in table yet
+            if p.get('type'):
+                content_type = p.get('type')
+            else:
+                match_attempt = re.search('open.spotify.com/(.*)/', p.get('url'))
+                if match_attempt:
+                    content_type = match_attempt.group(1)
+                    p['type'] = content_type
+                    #print("Type was set to {}".format(p.get('type')))
+                else:
+                    content_type = None
+
+                
+            #print("Content type is {}".format(content_type))
+            
+            # then get the image
+            search_string = "{}/(.*)\?".format(content_type)
+            match_attempt = re.search(search_string, p.get('url'))
+            if match_attempt:
+            # get track ID from the url
+                id = match_attempt.group(1)
+                api_url = "{}s/{}".format(content_type,id)
+                
+            print(api_url)
+            if content_type == "track":
+                p['name'], p['image_url'] = api_functions.get_track_image_url(api_url)
+            elif content_type == "episode":
+                p['name'], p['image_url'] = api_functions.get_episode_image_url(api_url)
+            elif content_type == "show":
+                p['name'], p['image_url'] = api_functions.get_show_image_url(api_url)
+            elif content_type == "playlist":
+                p['name'], p['image_url'] = api_functions.get_playlist_image_url(api_url)
+            else:
+                p['name'], p['image_url'] = "Could not find name", ""
+
+            p['commentList'] = db_functions.getComments(conn, p.get('postId'))
+
+
+    return render_template('friendProfile.html',
+                            username=username,
+                            following = following,
+                            following_count = following_count,
+                            followers = followers,
+                            followers_count = followers_count,
+                            userSongList = userSongList)
+
+## see your own profile
+@app.route('/profile/', methods=["GET","POST"])
+def view_profile():
+    conn = dbi.connect()
+
+    username = session.get('username')
+    currentUid = db_functions.get_uid(conn,username)
+    print(currentUid,username)
+    uid = currentUid['uid']
+
+    if request.method == 'GET':
+        followers = db_functions.get_followers(conn, uid)
+        followers_count = len(followers)
+
+        following = db_functions.get_follows(conn,uid)
+        following_count = len(following)
+
+        #gets all of the songs that have been shared by this user
+        userSongList = db_functions.getUserSongs(conn, uid)
+        #print(userSongList)
+        for song in userSongList:
+            if song['toAllFriends'] == 0:
+                name = db_functions.get_username(conn,song['receiverId'])['username']
+                song['username'] = name
+            else:
+                song['username'] = "All Friends"
+        #print(userSongList)
+        username = session.get('username')
+        #print("Your username is {}".format(username))
+
+        ## get pics for each of the songs
+        for p in userSongList:
+        # determine type if not in table yet
+            if p.get('type'):
+                content_type = p.get('type')
+            else:
+                match_attempt = re.search('open.spotify.com/(.*)/', p.get('url'))
+                if match_attempt:
+                    content_type = match_attempt.group(1)
+                    p['type'] = content_type
+                    #print("Type was set to {}".format(p.get('type')))
+                else:
+                    content_type = None
+
+                
+            #print("Content type is {}".format(content_type))
+            
+            # then get the image
+            search_string = "{}/(.*)\?".format(content_type)
+            match_attempt = re.search(search_string, p.get('url'))
+            if match_attempt:
+            # get track ID from the url
+                id = match_attempt.group(1)
+                api_url = "{}s/{}".format(content_type,id)
+                
+            print(api_url)
+            if content_type == "track":
+                p['name'], p['image_url'] = api_functions.get_track_image_url(api_url)
+            elif content_type == "episode":
+                p['name'], p['image_url'] = api_functions.get_episode_image_url(api_url)
+            elif content_type == "show":
+                p['name'], p['image_url'] = api_functions.get_show_image_url(api_url)
+            elif content_type == "playlist":
+                p['name'], p['image_url'] = api_functions.get_playlist_image_url(api_url)
+            else:
+                p['name'], p['image_url'] = "Could not find name", ""
+
+            p['commentList'] = db_functions.getComments(conn, p.get('postId'))
+
+        return render_template('profile.html',
+                                username=username,
+                                following = following,
+                                following_count = following_count,
+                                followers = followers,
+                                followers_count = followers_count,
+                                userSongList = userSongList)
+    """else:
+        # 
+        #users = db_functions.get_users(conn)
+        friendCount = db_functions.count_friends(conn, uid)
+        friends = db_functions.get_friends(conn,uid )
+        userSongList = db_functions.getUserSongs(conn, uid)
+
+        return render_template('profile.html', 
+                                username=username,
+                                friends = friends,
+                                friendCount = friendCount,
+                                userSongList = userSongList)
+                                """
+
+
+@app.route('/findFriends/', methods = ['GET', 'POST'])
+def findFriends():
+    conn = dbi.connect()
+    
+    username = session.get('username')
+    currentUid = db_functions.get_uid(conn,username)
+    uid = currentUid['uid']
+
+    if request.method == 'GET':
+        #get list of all users to add a friend
+        users = db_functions.get_users(conn)
+        return render_template('findFriends.html', 
+                                uid = uid,
+                                userList = users,)
+    else:
+        #Update template after adding friend
+        data = request.form
+        added_new = db_functions.add_follow(conn,uid,data['userList'])
+        friend_name = db_functions.get_username(conn, data['userList']).get('username')
+        if not added_new: #friendship already exists
+            flash("You already follow {}".format(friend_name))
+        else:
+            flash("Successfully added {} as a friend".format(friend_name))
+        return redirect(url_for('view_profile'))
+
+
+@app.route('/friends/', methods=['GET', 'POST'])
+def friendList():
+    conn = dbi.connect()
+    username = session.get('username')
+    currentUid = db_functions.get_uid(conn,username)
+    uid = currentUid['uid']
+
+    if request.method =='GET':
+        friends = db_functions.get_follows(conn,uid )
+        print("getting")
+        return render_template('friendList.html',
+                                uid = uid,
+                                friends = friends)
+    else:
+        data = request.form
+        print(data)
+
+        if data["submit"] == "unfollow":
+                db_functions.unfollow(conn, uid, data["friends"])
+                flash("Stopped following {}".format(db_functions.get_username(conn, data['friends']).get('username')))
+                following = db_functions.get_follows(conn,uid)
+                return render_template('friendList.html', 
+                                        friends = following)                                
+        else:
+            return redirect(url_for('view_friendProfile',uid = data["friends"]))
+
+@app.route('/login/', methods=['GET', 'POST'])
+def login():
+    if request.method=='GET':
+        return render_template('login.html')
+    elif request.method=='POST':
+        try:
+            print("we are in login")
+            username = request.form['username']
+            print(username)
+            passwd = request.form['password']
+            print(passwd)
+            conn = dbi.connect()
+            #gets someone's hashed pword
+            userRow = db_functions.check_password(conn,username)
+            print(userRow)
+            if userRow is None:
+                print("userrow was none")
+                flash('Login incorrect. Try again or sign up')
+                return redirect(url_for('login'))
+            hashed = userRow['hashed']
+            print(hashed)
+            if bcrypt.checkpw(passwd.encode('utf-8'), hashed.encode('utf-8')):
+                flash('Successfully logged in as: '+username)
+                session['username'] = username
+                session['logged_in'] = True
+                return redirect(url_for('index'))
+            else:
+                flash('login incorrect. Try again or sign up')
+                print("incorrect password")
+                flash('login incorrect. Try again or sign up')
+                return redirect(url_for('login'))
+        except Exception as err:
+            print('Form submission error '+ str(err))
+            return redirect( url_for('login') )
+
+@app.route('/feed/', methods=["GET", "POST"]) # has user "log in" with username - will update
+def display_feed():
+    conn = dbi.connect()
+    if request.method == "GET":
+        ## change this to check if we're logged in
+        print("Are we logged in? {}".format(session.get('logged_in')))
+        if session.get('logged_in') == True:
+            ## show feed
+            username = session.get('username')
+            print("Your username is {}".format(username))
+
+            ## get the posts
+            # first get your uid based on your username
+         
+            uid = db_functions.get_uid(conn, username)
+            n = 20 # limit to the most recent n posts
+            posts = db_functions.get_feed(conn, uid['uid'], n)
+            print(posts)
+
+            ## get pics for each of the songs
+            for p in posts:
+                # determine type if not in table yet
+                if p.get('type'):
+                    content_type = p.get('type')
+                else:
+                    match_attempt = re.search('open.spotify.com/(.*)/', p.get('url'))
+                    if match_attempt:
+                        content_type = match_attempt.group(1)
+                        p['type'] = content_type
+                        #print("Type was set to {}".format(p.get('type')))
+                    else:
+                        content_type = None
+
+                
+                #print("Content type is {}".format(content_type))
+                
+                # then get the image
+                search_string = "{}/(.*)\?".format(content_type)
+                match_attempt = re.search(search_string, p.get('url'))
+                if match_attempt:
+                # get track ID from the url
+                    id = match_attempt.group(1)
+                    api_url = "{}s/{}".format(content_type,id)
+                    
+                print(api_url)
+                if content_type == "track":
+                    p['name'], p['image_url'] = api_functions.get_track_image_url(api_url)
+                elif content_type == "episode":
+                    p['name'], p['image_url'] = api_functions.get_episode_image_url(api_url)
+                elif content_type == "show":
+                    p['name'], p['image_url'] = api_functions.get_show_image_url(api_url)
+                elif content_type == "playlist":
+                    p['name'], p['image_url'] = api_functions.get_playlist_image_url(api_url)
+                else:
+                    p['name'], p['image_url'] = "Could not find name", ""
+
+                p['commentList'] = db_functions.getComments(conn, p.get('postId'))
+
+                print(p['commentList'])
+
+            ## then render the page
+            return render_template('feed.html',
+                                    name=username, 
+                                    posts = posts,
+                                    uid = uid)
+        else:
+            return redirect(url_for('login'))
+
+    if request.method=='POST': 
+        
+        data = request.form
+        print("DATA")
+        print(data)
+        uid = db_functions.get_uid(conn, session.get('username'))['uid']
+        for k in data.keys():
+            db_functions.addComment(conn, uid, k, data[k])
+
+        return redirect(url_for('display_feed'))
+
+
+@app.route('/signup/', methods=['GET', 'POST'])
+def signup():
+    if request.method=='GET':
+        return render_template('signup.html')
+    if request.method=='POST':
+        try:
+            username = request.form['username']
+            passwd1 = request.form['password1']
+            passwd2 = request.form['password2']
+            if passwd1 != passwd2:
+                flash('The passwords you have entered do not match')
+                return redirect( url_for('signup'))
+            hashed = bcrypt.hashpw(passwd1.encode('utf-8'), bcrypt.gensalt())
+            conn = dbi.connect()
+            userRow = db_functions.check_username(conn,username)
+            if userRow is not None: #check if username exists in the database
+                flash('That username is taken')
+                return redirect( url_for('signup') )
+            db_functions.insert_user(conn,username,hashed)
+            session['username'] = username
+            session['logged_in'] = True
+            flash('You have signed up and logged in as: '+username)
+            return redirect(url_for('display_feed'))
+        except Exception as err:
+            print('Form submission error '+str(err))
+            return redirect( url_for('signup') )
+
+@app.route('/logout/', methods=['POST','GET'])
+def logout():
+    try:
+        if 'username' in session:
+            username = session['username']
+            session.pop('username')
+            session.pop('logged_in')
+            flash('You are logged out')
+            return redirect(url_for('sign_in'))
+        else:
+            flash('You are not logged in. Please login or sign up')
+            return redirect( url_for('login') )
+    except Exception as err:
+        #flash('some kind of error '+str(err))
+        return redirect( url_for('login') )
+
+
+@app.before_first_request
+def init_db():
+    dbi.cache_cnf()
+    # set this local variable to 'wmdb' or your personal or team db
+    db_to_use = 'socialfy_db' 
+    dbi.use(db_to_use)
+    print('will connect to {}'.format(db_to_use))
+
+if __name__ == '__main__':
+    import sys, os
+    if len(sys.argv) > 1:
+        # arg, if any, is the desired port number
+        port = int(sys.argv[1])
+        assert(port>1024)
+    else:
+        port = os.getuid()
+    app.debug = True
+    app.run('0.0.0.0',port)
+## This contains our helper functions for connecting to the DB
+
+import cs304dbi as dbi
+import pymysql
+from datetime import datetime
+
+# ==========================================================
+# The functions that do most of the work.
+
+def get_uid(conn, username):
+    '''Returns a user's uid based on their username
+    :param conn: connection to db
+    :param username: a user's username
+    :return: int uid 
+    '''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid from user where username like %s''', [username])
+    uid= curs.fetchone()
+    return uid
+
+def get_username(conn, uid):
+    '''Returns a user's uid based on their username
+    :param conn: connection to db
+    :param username: a user's username
+    :return: int uid 
+    '''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select username from user where uid = %s''', [uid])
+    user_list = curs.fetchone()
+    return user_list
+
+
+def get_feed(conn, uid, n):
+    '''gets a list of the most recent n posts for a user based on uid
+
+    :param conn: connection to database
+    :param uid: user's uid
+    :param n: the number of posts to return
+    :return: list of dictionaries of the n most recent posts shared with user
+    '''
+    curs = dbi.dict_cursor(conn)
+    ## we need posts 
+    # get DM's and posts to all friends
+    # check if this works and debug
+    curs.execute('''select senderId, receiverId, user.username, toAllFriends, url, date, content, postId, type from post
+        inner join user on (user.uid = post.senderId)
+        where receiverId=%s or
+        (toAllFriends=True and
+        (senderId in (select followed from friends where follower=%s)))
+        order by date DESC
+        limit %s''', [uid, uid, n])
+        # or senderId in (select uid2 from friends where uid1=%s
+    posts = curs.fetchall()
+    return posts
+
+def getComments(conn, pid):
+    curs = dbi.dict_cursor(conn)
+    curs.execute(''' select comment, date, uid, username
+                    from comment inner join user using (uid) 
+                    where pid = %s
+                    order by date desc''' , [pid])
+    data = curs.fetchall()
+    return data
+
+def addComment(conn, uid, pid, comment):
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''INSERT INTO comment(uid, pid, comment, date)
+            VALUES (%s, %s, %s, %s); ''', [uid, pid, comment, datetime.now()])
+    conn.commit()
+    return True
+
+
+def getUserSongs(conn, uid):
+    '''given a user id, find all of the songs they've sent to friends and who they sent them to'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select url,toAllFriends, receiverId, type, date from post
+        where senderId=%s
+        order by date DESC''', [uid])
+    songList = curs.fetchall()
+    return songList
+
+def create_post(conn, post_info):
+    '''
+    Inserts a post into the post table
+
+    :param conn: connection to database
+    :param post_info: dictionary of post information, doesn't have to be complete
+    :return: postId if successful, error message otherwise
+    '''
+    curs = dbi.dict_cursor(conn)
+    try:
+        # ask scott about autoincrement not working
+        #last_insert_id = curs.execute('''select postId from post order by postId DESC limit 1''', [])
+        #print(last_insert_id)
+        print("in create_post")
+        values_to_add = [post_info.get('senderId', None),
+                post_info.get('receiverId', None),
+                post_info.get('type', None),
+                post_info.get('url', None),
+                post_info.get('content', None),
+                datetime.now(),
+                post_info.get('toAllFriends', False)]
+        curs.execute('''INSERT INTO post(senderId, receiverId, type, url, content, date, toAllFriends)
+            VALUES (%s, %s, %s, %s, %s, %s, %s); ''', values_to_add)
+        conn.commit()
+        print("committed")
+        curs.execute('''Select last_insert_id() as id''')
+        post_id =curs.fetchone()["id"]
+        print(post_id)
+        return post_id
+    except Exception as e:
+        print(e)
+        return str(e)
+
+
+'''
+    Set up table which stores user data 
+    Set up “friends” table which describes friendly relationships between each user
+    A user’s profile web page displays their user data from the user table. 
+    This includes who is following them, who they’re following, a short biography text area, and a list of the users’ shared songs.
+    Contains a search bar to find friends. 
+'''
+
+def count_friends(conn, uid):
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid1 from friends where uid2 = %s''', [uid])
+    friendList = curs.fetchall()
+    count = 0
+    for friend in friendList:
+        count += 1
+    return count
+
+def get_users(conn):
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid,username from user ''')
+    userList = curs.fetchall()
+    return userList
+
+def add_follow(conn,my_uid,followed_uid):
+    curs = dbi.dict_cursor(conn)
+    # check if already friends
+    curs.execute('select * from friends where (follower=%s and followed=%s)', [my_uid, followed_uid])
+    if len(curs.fetchall()) == 0: # friendship doesnt exist yet
+        print("friendship doesn't exist yet")
+        curs.execute('insert into friends(followed,follower) values (%s,%s)',[followed_uid,my_uid]) 
+        friends = curs.fetchall()
+        conn.commit()
+        return True
+    else:
+        print("friendship exists already")
+        print("done")
+        return False #friendship already exists
+
+def get_followers(conn, my_uid):
+    ''' searches for who is following you'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid, username 
+                    from friends inner join user on user.uid=friends.follower 
+                    where followed = %s''', [my_uid])
+    #curs.fetchone()
+    followerList = curs.fetchall()
+    return followerList
+
+def get_follows(conn, my_uid):
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid, username 
+                    from friends inner join user on user.uid=friends.followed 
+                    where follower = %s''', [my_uid])
+    #curs.fetchone()
+    followList = curs.fetchall()
+    return followList
+
+def get_friends(conn, uid):
+    '''searches for a user's friends based on their UID in friend table
+        Implementation requires duplicate pairs
+        
+        returns a list of dictionaries like {uid:1, username:"bob"}'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid, username 
+                    from friends inner join user on user.uid=friends.uid1 where uid2 = %s''', [uid])
+    #curs.fetchone()
+    friendList = curs.fetchall()
+    return friendList
+
+def unfollow(conn, my_uid, followed_uid):
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''delete from friends
+                    where follower = %s and followed = %s''', [my_uid, followed_uid])
+    conn.commit()
+    return True
+
+
+# consider not implementing 
+def get_outgoing_messages(conn, uid):
+    return True
+
+def lookup(conn, search_name):
+    '''searches for a user based on search_name
+    returns a list of possible UID's'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select uid from user where username like '%' %s %''', [uid]) #wildcards can get kinda weird, need to check if this works
+    curs.fetchone()
+    return curs.fetchall()
+    
+
+def check_password(conn,username):
+    '''select hashed password given username'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('select hashed from user where username=%s',[username])
+    return curs.fetchone()
+
+def check_username(conn, username):
+    '''check if username already exists; username has to be unique'''
+    curs = dbi.dict_cursor(conn)
+    curs.execute('''select username from user where username=%s''', [username])
+    return curs.fetchone()
+
+def insert_user(conn,username,hashed):
+    '''inserts username and password into userpass table'''
+    curs = dbi.dict_cursor(conn)
+    try:
+        curs.execute('insert into user(username,hashed) values (%s,%s)',[username,hashed])
+        conn.commit()
+        return True
+    except pymysql.err.IntegrityError as err:
+        details = err.args
+        print('error',details)
+        if details[0] == pymysql.constants.ER.DUP_ENTRY:
+            print('duplicate key for username {}'.format(username))
+            return True 
+# ==========================================================
+# This starts the ball rolling, *if* the file is run as a
+# script, rather than just being imported.    
+
+if __name__ == '__main__':
+    dbi.cache_cnf()   # defaults to ~/.my.cnf
+    dbi.use('socialfy_db')
+    conn = dbi.connect()
+    pl = get_uid(conn)
+    for person in pl:
+        print('{name} born on {date}'
+              .format(name=person['name'],
+                      date=person['birthdate']))
+    print('September People')
+    pl = people_born_in_month(conn,9)
+    for person in pl:
+        print('{name} born on {date}'
+              .format(name=person['name'],
+                      date=person['birthdate']))
+    
+<!doctype html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <!-- for mobile-friendly pages -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name=author content="">
+    <title> Socialfy Pages </title>
+    <link rel='stylesheet' href="{{url_for('static', filename = 'style.css')}}">
+    {% block head_stuff %} {% endblock %}
+</head>
+<body>
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div id="messages">
+  {% for msg in messages %}
+  <p>{{msg}}</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+       
+<h4 class = "logout"> <a href="{{url_for('logout')}}"> log out </a> </h4>
+
+{% block nav %}
+<nav>
+  <ul>
+    <li><a href="{{url_for('music_share_form')}}">Share Music</a></li>
+    <li><a href="{{url_for('view_profile')}}">Profile</a></li>
+    <li><a href="{{url_for('display_feed')}}">Feed</a></li>
+    <li><a href="{{url_for('findFriends')}}">Find Users</a></li>
+  </ul>
+</nav>
+{% endblock %}
+
+{% block main_content %}
+<h1>Welcome</h1>
+{% endblock %}
+
+  <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+  {% block end_scripts %}
+  {% endblock %}
+  
+</body>
+</html>
+{% extends "base.html" %}
+
+{% block main_content %}
+<h1> {{name}}'s Feed</h1>
+
+{% for post in posts %}
+    <div class = "feed-post">
+        <!-- if I am the receiver of the song -->
+        {% if post['receiverId'] == uid['uid'] %}
+            <h2> {{post['username']}} shared a {{post.get('type', "track")}} with you</h2>
+        {%else %}
+            <h2> {{post['username']}} shared a {{post.get('type', "track")}} with all their friends</h2>
+        {% endif %}
+
+        <h3> {{post['date']}}</h3>
+
+        <h3> <a href="{{post['url']}}" target="_blank"> {{post['name']}} </a> </h3>
+        
+        <a href="{{post['url']}}" target="_blank"><img src = {{post['image_url']}}
+            alt = "{{post['name']}} Album Cover" 
+            style = "width: 300px; height: 300px; margin: auto; display: block;"></a>
+        
+        {% if post['content'] is not none %}
+            <p> {{post['content']}} </p>
+        {% endif %}
+
+        <form method = 'POST' action = "{{url_for('display_feed')}}"  aria-label="comment">
+            {% for comment in post['commentList']%}
+
+                <h3> {{comment['comment']}} - {{comment['username']}} </h3>
+            {% endfor %}
+            <textarea class = "musicShareTextArea" required name={{post['postId']}} rows="7" cols="50"  aria-label="comment"></textarea>
+            <br>
+            <br>
+            <button class = "musicShareButton"> Comment </button>
+         </form>
+
+    </div>
+    <br>
+{% endfor %} 
+
+{% endblock %}{% extends "base.html" %}
+
+{% block main_content %}
+<h1> Follow Users </h1>
+
+<div class = "findFriends" >
+    <form method = 'POST' action = "{{url_for('findFriends')}}"  aria-label="find friends">
+      <select name="userList" class = "userList"  aria-label="select friend">
+          {% for user in userList %}
+                {% if user['uid'] != uid %}
+                    <option value="{{user['uid']}}"> {{user['username']}} </option> 
+                {% endif %}
+          {% endfor %}
+      </select>
+      <br>
+      <input type="submit" value="Follow">
+    </form>
+</div>
+<br>
+
+{% endblock %}{% extends "base.html"%}
+
+{% block main_content %}
+
+    <h1>Following:</h1>
+
+        <div class = "findFriends">
+            <form method = 'POST' action = "{{url_for('friendList')}}"  aria-label="friend list">
+                <select name="friends" class = "userList"  aria-label="select friend">
+                    {% for friend in friends %}
+                        {% if friend['uid'] != uid %}
+                            <option value="{{friend['uid']}}"> {{friend['username']}}</option>
+                        {%endif%}
+                    {% endfor %}
+                </select>
+                <br>
+                <input type="submit" name = "submit" value="unfollow">
+                <br>
+                <input type="submit" name = "submit" value="show profile">
+            </form>
+        </div>
+
+{% endblock %}{% extends "base.html"%}
+
+{% block main_content %}
+
+<div class="profile-page">
+<div username={{username}} >
+
+    {% if not session['logged_in'] %}
+    <br>
+    <p style="color: red;">
+        You can't access your profile because you are not logged in.
+        Please Log in by clicking "Login" in the Nav Bar.
+    </p>
+    {% endif %}
+    
+    {% if session['logged_in'] %}
+    <a class="active" href="{{ url_for('view_profile') }}"></a>
+    {% endif %}
+
+    <h1>{{username}}</h1>
+    <h2> {{friendCount}} Friends </h2>
+
+    <div class = "sharedSongs">
+            {% for post in userSongList %}
+
+            {%if post['toAllFriends'] == True%}
+                <div class = "feed-post">
+                <!-- if I am the receiver of the song -->
+                <h2> {{username}} shared a {{post.get('type', "track")}} with {{post['username']}}</h2>
+
+                <h3> {{post['date']}}</h3>
+
+                <h3> <a href="{{post['url']}}" target="_blank"> {{post['name']}} </a> </h3>
+                
+                <a href="{{post['url']}}" target="_blank"><img src = {{post['image_url']}}
+                    alt = "{{post['name']}} Album Cover" 
+                    style = "width: 300px; height: 300px; margin: auto; display: block;"></a>
+                
+                {% if post['content'] is not none %}
+                    <p> {{post['content']}} </p>
+                {% endif %}
+
+                <form method = 'POST' action = "{{url_for('display_feed')}}"  aria-label="comment">
+                    {% for comment in post['commentList']%}
+
+                        <h3> {{comment['comment']}} - {{comment['username']}} </h3>
+                    {% endfor %}
+                    <textarea class = "musicShareTextArea" required name={{post['postId']}} rows="7" cols="50"  aria-label="comment"></textarea>
+                    <br>
+                    <br>
+                    <button class = "musicShareButton"> Comment </button>
+                </form>
+
+            </div>
+            {% endif %}
+        <br>
+    {% endfor %} 
+    </div>
+
+</div>
+</div>
+
+{% endblock %}
+<script>
+// var loggedIn = session['logged_in'];
+// console.log(session)
+var user = "{{username}}";
+/* global $ */{% extends "base.html" %}
+
+{% block main_content %}
+<p>Click to <a href="{{ url_for('index') }}">return to the main page</a>.</p>
+
+<h1>Greetings {{name}}</h1>
+
+<form method="post" action="">
+    <p>Please tell us your <label for="username">name: <input type="text" name="username"></label></p>
+    <p><input type="submit"></p>
+</form>
+
+{% endblock %}
+<!doctype html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <!-- for mobile-friendly pages -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name=Socialfy content="">
+    <title>Login Page</title>
+    <link rel='stylesheet' href="{{url_for('static', filename = 'style.css')}}">
+
+
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div id="messages">
+  {% for msg in messages %}
+  <p>{{msg}}</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+
+{% block main_content %}
+
+{% block form %}
+<div class = "login-page">
+  <h1 > Log In </h1>
+  <div class = "login-form">
+    <form method = 'POST' action = "{{url_for('login')}}">
+      <input type="text" required name="username" placeholder = "username" aria-label="username">
+      <br>
+      <br>
+      <input type="password" required name="password" placeholder= "password" aria-label="password">
+      <br>
+      <br>
+      <button > Log in </button>
+    </form>
+  </div>
+  <p class = "loginP"> Don't have an account? </p>
+  <div class = "login-form button">
+  <a href="{{url_for('.signup')}}">
+    <button> Sign Up </button>
+  </a>
+</div>
+</div>
+{% endblock %}
+
+{% endblock %}{% extends "base.html" %}
+
+{% block main_content %}
+<h1>Hello!</h1>
+
+<p>For a greeting by name, visit this <a href="{{ url_for('greet') }}">greeting</a> page.</p>
+
+{% endblock %}
+{% extends "base.html"%}
+
+{% block main_content %}
+<div class = "musicShare-page">
+
+    <h1 > Share Music </h1>
+
+      <form method = 'POST' action = "{{url_for('music_share_form')}}">
+
+          <select class = "musicShareSelect" name="friendList"  aria-label="share: select friend">
+                  <option value = "ALL">All Friends</option>
+              {% for friend in friendList %}
+                  <option value="{{friend['uid']}}"> {{friend['username']}} </option> 
+              {% endfor %}
+          </select>
+
+        <br>
+        <br>
+        <input class = "musicShareURL" type="text" required name="URL" placeholder = "URL"  aria-label="share: URL">
+        <br>
+        <br>
+        <textarea class = "musicShareTextArea" required name="message" rows="7" cols="50"  aria-label="share: description"></textarea>
+        <br>
+        <br>
+        <button class = "musicShareButton"> Share </button>
+      </form>
+
+  </div>
+
+
+{% endblock%}{% extends "base.html"%}
+
+{% block main_content %}
+
+<div class="profile-page">
+<div username={{username}} >
+
+    {% if not session['logged_in'] %}
+    <br>
+    <p style="color: red;">
+        You can't access your profile because you are not logged in.
+        Please Log in by clicking "Login" in the Nav Bar.
+    </p>
+    {% endif %}
+    
+    {% if session['logged_in'] %}
+    <a class="active" href="{{ url_for('view_profile') }}"></a>
+    {% endif %}
+
+    <h1>{{username}}</h1>
+    <h2> {{following_count}} Following </h2>
+    <h2> {{followers_count}} Followers </h2>
+    <div class = "findFriends">
+        <form method = 'GET' action = "{{url_for('.friendList')}}">
+            <input type="submit" value="Show Following"> </input>
+        </form>
+    </div>
+
+    <div class = "sharedSongs">
+
+        {% for post in userSongList %}
+        <div class = "feed-post">
+        <!-- if I am the receiver of the song -->
+        <h2> you shared a {{post.get('type', "track")}} with {{post['username']}}</h2>
+
+        <h3> {{post['date']}}</h3>
+
+        <h3> <a href="{{post['url']}}" target="_blank"> {{post['name']}} </a> </h3>
+        
+        <a href="{{post['url']}}" target="_blank"><img src = {{post['image_url']}}
+            alt = "{{post['name']}} Album Cover" 
+            style = "width: 300px; height: 300px; margin: auto; display: block;"></a>
+        
+        {% if post['content'] is not none %}
+            <p> {{post['content']}} </p>
+        {% endif %}
+
+        <form method = 'POST' action = "{{url_for('display_feed')}}"  aria-label="comment">
+            {% for comment in post['commentList']%}
+
+                <h3> {{comment['comment']}} - {{comment['username']}} </h3>
+            {% endfor %}
+            <textarea class = "musicShareTextArea" required name={{post['postId']}} rows="7" cols="50"  aria-label="comment"></textarea>
+            <br>
+            <br>
+            <button class = "musicShareButton"> Comment </button>
+         </form>
+
+    </div>
+    <br>
+{% endfor %} 
+    </div>
+
+</div>
+</div>
+
+{% endblock %}
+<script>
+// var loggedIn = session['logged_in'];
+// console.log(session)
+var user = "{{username}}";
+/* global $ */<!doctype html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <!-- for mobile-friendly pages -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name=author content="">
+    <title>Sign Up</title>
+    <link rel='stylesheet' href="{{url_for('static', filename = 'style.css')}}">
+
+{% block main_content %}
+
+{% block form %}
+<div class = "signup-page">
+  <h1 > Sign Up </h1>
+    <div class = "login-form">
+        <form method = 'POST' action = "{{url_for('signup')}}"  aria-label="signup">
+            <p> 
+                <input type="text"
+                        id="username" 
+                        class="form-control"
+                        name="username" 
+                        placeholder = "username" 
+                        required pattern="^\w+$"
+                        aria-label="username">
+                
+            </p>
+            <br>
+            <p>
+                    <input type="password" 
+                            id="password" 
+                            class="form-control" 
+                            name="password1"
+                            placeholder = "password"
+                            aria-label="password"> 
+            </p>
+            <br>
+            <p>
+                    <input type="password" 
+                            id="confirm" 
+                            class="form-control" 
+                            name="password2" 
+                            placeholder = "confirm password"
+                            aria-label="confirm password">
+               
+            </p>
+            <br>
+            <p><button type="submit" class="btn btn-success">Submit</button></p>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% endblock %}
+      
+      
+{% extends "base.html" %}
+
+{% block main_content %}
+<p>Click to <a href="{{ url_for('index') }}">return to the main page</a>.</p>
+
+<h1>Test Forms</h1>
+
+<h2>POST form</h2>
+
+<form method="post" action="{{url_for('formecho')}}">
+<p><label>Name:
+    <input required type="text" name="user" size="50" placeholder="Arthur, King of the Britons"></label></p>
+
+<p><label>Quest:
+    <textarea required name="quest" rows="3" cols="50" placeholder="To seek the grail"></textarea>
+</label></p>
+
+<p><label>Favorite Color?
+        <select required name="color">
+            <option value="">choose</option>
+            <option>Blue</option>
+            <option value="yellow">No, yel...</option>
+        </select>
+</label></p>
+
+<p><input type="submit" value="process form">
+</form>
+
+<h2>GET form</h2>
+
+<form method="get" action="{{url_for('formecho')}}">
+<p><label>Name:
+    <input required type="text" name="user" size="50" placeholder="Arthur, King of the Britons"></label></p>
+
+<p><label>Quest:
+    <textarea required name="quest" rows="3" cols="50" placeholder="To seek the grail"></textarea>
+</label></p>
+
+<p><label>Favorite Color?
+        <select required name="color">
+            <option value="">choose</option>
+            <option>Blue</option>
+            <option value="yellow">No, yel...</option>
+        </select>
+</label></p>
+
+<p><input type="submit" value="process form">
+</form>
+
+{% endblock %}
+/* the --color-header and others are CSS variables, which we access later. 
+*/
+
+HTML {
+    --color-header: #8be2ff; 
+    --color-hilite: #b50000;  
+    --color-focus: #0cadd5;
+    --font-family: Verdana;
+    background-image: linear-gradient(to right, rgb(77, 185, 243), rgb(239, 70, 205));
+    font-family: var(--font-family)
+}
+
+h1 {
+    font-size: 200%;
+    color: rgb(1, 32, 49);
+    font-weight: bold;
+    text-align: center;
+}
+a{
+    color: rgb(3, 61, 92);
+    font-weight: bold;
+    text-align: center;
+}
+h2, h3{
+    color: rgb(3, 61, 92);
+    font-weight: bold;
+    text-align: center;
+}
+
+h4, h5 {
+    color: rgb(101, 201, 255);
+    font-weight: bold;
+    text-align: center;
+}
+
+p{
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+    padding-bottom: 5px;
+    color: #f8f8f8;
+}
+
+a {
+    text-align: center;
+    text-decoration: none;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.loginP{
+    color:rgb(3, 76, 116);
+}
+
+/*##############################Login CSS######################################### */
+
+.logout{
+    text-align: right;
+    padding-right: 5%;
+}
+
+.login-form{
+    flex-direction: row;
+    text-align: center;
+    align-items: center;
+    max-width: 360 px;
+    padding: 45 px;
+    padding-bottom: 10px;
+    margin: auto;
+}
+
+.login-page{
+    width: 50%;
+    padding: 1% 0 1%;
+    margin: auto;
+    margin-top: 10%;
+    background-color: rgb(255, 255, 255);
+}
+
+.signup-page{
+    width: 50%;
+    padding: 1% 0 1%;
+    margin: auto;
+    margin-top: 5%;
+    background-color: rgb(255, 255, 255);
+
+}
+
+.login-form input{
+    outline: 0;
+    border: 0;
+    background: #f0f0f0;
+    width: 60%;
+    margin: 0 0 15px;
+    padding: 15px;
+    font-size: 14px;
+}
+
+.login-form button{
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 40%;
+    padding: 15px;
+
+}
+
+.login-form button:hover {
+    background-color: rgb(239, 70, 205);
+}
+
+/* ############################### NAV BAR CSS ##################################################### */
+
+nav {
+    margin: auto;
+    background-color: #202020;
+    color: #e7e7e7;
+    width: 90%;
+}
+
+nav ul {
+    list-style-type: none;
+    margin: 0px;
+    padding: 0px;
+    display: flex;
+    align-items: center;
+}
+
+nav ul li a {
+    color: #e7e7e7;
+    padding: 24px;
+    display: block;
+}
+
+nav ul a:hover, 
+nav ul a:focus {
+    color: rgb(239, 70, 205);
+    background-color: #020202;
+}
+
+.submitButton{
+    color: #035e7d;
+    background-color: #b1e6f8;
+    padding: 12px;
+    border-color: white;
+    font-size: 17px;
+    font-weight: bold;
+}
+
+input{
+    color: #035e7d;
+    background-color: #ffff;
+    border-style: solid;
+    border-color: #d6d6d6;
+}
+
+.musicShare-page{
+    width: 70%;
+    margin: auto;
+    padding: 1% 1% 1%;
+    margin-top: 2%;
+    background-color: rgba(255, 255, 255, 0.271);
+}
+
+.musicShareSelect{
+    display: block;
+    margin: auto;
+}
+
+.musicShareURL{
+    display: block;
+    margin: auto; 
+}
+
+.musicShareTextArea{
+    display: block;
+    margin: auto;
+    border-radius: 10px;
+}
+
+.musicShareButton{
+    display: block;
+    margin: auto;
+}
+
+.musicShare-page select{
+    margin: auto;
+    align-items: center;
+    border: 0;
+    border-radius: 10px;
+    width: 17%;
+    padding: 5px;
+    font-size: 14px;
+
+}
+
+.musicShare-page input{
+    padding: 10px;
+    border: 0;
+    border-radius: 10px;
+
+}
+.musicShare-page textarea{
+    margin: auto;
+    resize: none;
+    border: 0;
+    text-align: left;
+    width: 40%;
+    padding: 5px;
+    font-size: 14px;
+
+}
+
+.musicShare-page button{
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    border-radius: 10px;
+    width: 20%;
+    padding: 15px;
+
+}
+.musicShare-form button:hover {
+    background-color: rgb(239, 70, 205);
+}
+
+/* ############################### Profile Page CSS #################################################### */
+
+.profile-page{
+    text-align: center;
+    padding-bottom: 20px;
+    margin: auto;
+    width: 80%;
+}
+
+.profile-page input{
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 90px;
+    padding: 15px;
+    border-radius: 15px;
+}
+
+.profile-page input:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+.profile-footer{
+    width: 80%;
+    padding: 1% 1% 1%;
+    margin: auto;
+    margin-top: 2%;
+    background-color: rgb(255, 255, 255);
+}
+
+.findFriends input{
+    /* this is the Add Friend button on the Find Friend's Page */
+    /* inherits from .profile-page input */
+    width: 110px;
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    padding: 15px;
+    border-radius: 15px;
+}
+.userList{
+    margin: auto;
+    display: flex;
+    height: 30px;
+}
+
+.findFriends select{
+    margin: auto;
+    align-items: center;
+    border: 0;
+    border-radius: 10px;
+    width: 20%;
+    padding: 5px;
+    font-size: 14px;
+}
+
+.findFriends input:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+.header{
+    background-color: #e7e7e74a;;
+}
+
+.sharedSongs{
+    margin: auto;
+    margin-top: 2%;
+    
+    /* background-color: #e7e7e72a; */
+}
+
+.header{
+    background-color: #e7e7e761;
+    padding: 3%;
+    width: 0.1%;
+}
+
+.footer{
+    background-color: #e7e7e72f;
+    padding: 3%;
+}
+
+.songTable{
+    border: 0;
+    border-collapse: collapse;
+    padding: 10px;
+    margin: auto;
+    color:white;
+}
+
+.songTable table, td, th{
+    border: 0;
+    border-collapse: collapse;
+    padding: 10px;
+}
+
+
+.feed-post{
+    width: 50%;
+    padding: 1% 0 1%;
+    margin: auto;
+    background-color: rgba(255, 255, 255, 0.245);
+}

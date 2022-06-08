@@ -1,0 +1,32 @@
+{% extends "base.html"%}
+
+{% block main_content %}
+<div class = "musicShare-page">
+<title> Share Music</title>
+
+    <h1 > Share Music </h1>
+
+      <form method = 'POST' action = "{{url_for('music_share_form')}}">
+
+          <select class = "musicShareSelect" name="friendList"  aria-label="share: select friend">
+                  <option value = "ALL">All Friends</option>
+              {% for friend in friendList %}
+                  <option value="{{friend['uid']}}"> {{friend['username']}} </option> 
+              {% endfor %}
+          </select>
+
+        <br>
+        <br>
+        <input class = "musicShareURL" type="text" required name="URL" placeholder = "URL"  aria-label="share: URL">
+        <br>
+        <br>
+        <textarea class = "musicShareTextArea" required name="message" placeholder = "description" rows="7" cols="50"  aria-label="share: description"></textarea>
+        <br>
+        <br>
+        <button class = "musicShareButton"> Share </button>
+      </form>
+
+  </div>
+
+
+{% endblock%}

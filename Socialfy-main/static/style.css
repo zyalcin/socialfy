@@ -1,0 +1,404 @@
+/* the --color-header and others are CSS variables, which we access later. 
+*/
+
+HTML {
+    --color-header: #8be2ff; 
+    --color-hilite: #b50000;  
+    --color-focus: #0cadd5;
+    --font-family: Verdana;
+    background-image: linear-gradient(to right, rgb(77, 185, 243), rgb(239, 70, 205));
+    font-family: var(--font-family)
+}
+
+h1 {
+    font-size: 200%;
+    color: rgb(1, 32, 49);
+    font-weight: bold;
+    text-align: center;
+}
+a{
+    color: rgb(3, 61, 92);
+    font-weight: bold;
+    text-align: center;
+}
+h2, h3{
+    color: rgb(3, 61, 92);
+    font-weight: bold;
+    text-align: center;
+}
+
+h4, h5 {
+    color: rgb(101, 201, 255);
+    font-weight: bold;
+    text-align: center;
+}
+
+p{
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+    padding-bottom: 5px;
+    color: #f8f8f8;
+}
+
+.comment{
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+    padding-bottom: 5px;
+    color:rgb(3, 61, 92);
+}
+
+a {
+    text-align: center;
+    text-decoration: none;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.loginP{
+    color:rgb(3, 76, 116);
+}
+
+/*##############################Login CSS######################################### */
+
+.logout{
+    text-align: right;
+    padding-right: 5%;
+}
+
+.login-form{
+    flex-direction: row;
+    text-align: center;
+    align-items: center;
+    max-width: 360 px;
+    padding: 45 px;
+    padding-bottom: 10px;
+    margin: auto;
+}
+
+.login-page{
+    width: 50%;
+    padding: 1% 0 1%;
+    margin: auto;
+    margin-top: 10%;
+    background-color: rgb(255, 255, 255);
+}
+
+.signup-page{
+    width: 50%;
+    padding: 1% 0 1%;
+    margin: auto;
+    margin-top: 5%;
+    background-color: rgb(255, 255, 255);
+
+}
+
+.login-form input{
+    outline: 0;
+    border: 0;
+    background: #f0f0f0;
+    width: 60%;
+    margin: 0 0 15px;
+    padding: 15px;
+    font-size: 14px;
+}
+
+.login-form button{
+    background-color: rgba(0, 0, 0, 0.881);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 40%;
+    padding: 15px;
+
+}
+
+.login-form button:hover {
+    background-color: rgb(239, 70, 205);
+}
+
+/* ############################### NAV BAR CSS ##################################################### */
+
+nav {
+    margin: auto;
+    background-color: #202020;
+    color: #e7e7e7;
+    width: 90%;
+}
+
+nav ul {
+    list-style-type: none;
+    margin: 0px;
+    padding: 0px;
+    display: flex;
+    align-items: center;
+}
+
+nav ul li a {
+    color: #e7e7e7;
+    padding: 24px;
+    display: block;
+}
+
+nav ul a:hover, 
+nav ul a:focus {
+    color: rgb(239, 70, 205);
+    background-color: #020202;
+}
+
+.submitButton{
+    color: #035e7d;
+    background-color: #b1e6f8;
+    padding: 12px;
+    border-color: white;
+    font-size: 17px;
+    font-weight: bold;
+}
+
+input{
+    color: #035e7d;
+    background-color: #ffff;
+    border-style: solid;
+    border-color: #d6d6d6;
+}
+
+.musicShare-page{
+    width: 70%;
+    margin: auto;
+    padding: 1% 1% 1%;
+    margin-top: 2%;
+    background-color: rgba(255, 255, 255, 0.271);
+}
+
+.musicShareSelect{
+    display: block;
+    margin: auto;
+}
+
+.musicShareURL{
+    display: block;
+    margin: auto; 
+}
+
+.musicShareTextArea{
+    display: block;
+    margin: auto;
+    border-radius: 10px;
+}
+
+.musicShareButton{
+    display: block;
+    margin: auto;
+}
+
+.musicShare-page select{
+    margin: auto;
+    align-items: center;
+    border: 0;
+    border-radius: 10px;
+    width: 17%;
+    padding: 5px;
+    font-size: 14px;
+
+}
+
+.musicShare-page input{
+    padding: 10px;
+    border: 0;
+    border-radius: 10px;
+
+}
+.musicShare-page textarea{
+    margin: auto;
+    resize: none;
+    border: 0;
+    text-align: left;
+    width: 40%;
+    padding: 5px;
+    font-size: 14px;
+
+}
+
+.musicShare-page button{
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    border-radius: 10px;
+    width: 20%;
+    padding: 15px;
+
+}
+.musicShare-form button:hover {
+    background-color: rgb(239, 70, 205);
+}
+
+/* ############################### Profile Page CSS #################################################### */
+
+.profile-page{
+    text-align: center;
+    padding-bottom: 20px;
+    margin: auto;
+    width: 80%;
+}
+
+.deletePostButton{
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 123px;
+    padding: 15px;
+    border-radius: 15px;
+}
+
+.deletePostButton:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+.followButton{
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 90px;
+    padding: 15px;
+    border-radius: 15px;
+}
+
+.followButton:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+.unfollowButton{
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(0, 0, 0);
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+    outline: 0;
+    border: 0;
+    width: 107px;
+    padding: 15px;
+    border-radius: 15px;
+}
+
+.unfollowButton:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+.userList{
+    margin: auto;
+    display: flex;
+    height: 30px;
+}
+
+.findFriends select{
+    margin: auto;
+    align-items: center;
+    border: 0;
+    border-radius: 10px;
+    width: 20%;
+    padding: 5px;
+    font-size: 14px;
+}
+
+.findFriends input:hover{
+    background-color: rgb(239, 70, 205);
+}
+
+
+.header{
+    background-color: #e7e7e74a;;
+}
+
+.sharedSongs{
+    margin: auto;
+    margin-top: 2%;
+    
+    /* background-color: #e7e7e72a; */
+}
+
+.header{
+    background-color: #e7e7e761;
+    padding: 3%;
+    width: 0.1%;
+}
+
+.footer{
+    background-color: #e7e7e72f;
+    padding: 3%;
+}
+
+.songTable{
+    border: 0;
+    border-collapse: collapse;
+    padding: 10px;
+    margin: auto;
+    color:white;
+}
+
+.songTable table, td, th{
+    border: 0;
+    border-collapse: collapse;
+    padding: 10px;
+}
+
+
+.feed-post{
+    width: 50%;
+    padding: 0 0 1%;
+    margin: auto;
+    background-color: rgba(255, 255, 255, 0.245);
+}
+
+.commentButton{
+    width: 80px;
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(255, 255, 255);
+    color: rgb(0, 0, 0);
+    outline: 0;
+    border: 0;
+    padding: 10px;
+    border-radius: 15px;
+}
+
+.deleteButton{
+    width: 65px;
+    text-align: center;
+    margin: auto;
+    display: flex;
+    background-color: rgb(255, 255, 255);
+    color: rgb(0, 0, 0);
+    outline: 0;
+    border: 0;
+    padding: 10px;
+    border-radius: 15px;
+}
+
+.commentDiv{
+    background-color: rgba(255, 255, 255, 0.412);
+    width: 50%;
+    margin: auto;
+    border-radius: 5px;
+}
+
